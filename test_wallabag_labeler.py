@@ -140,7 +140,13 @@ class TestWallabagLabeler(unittest.TestCase):
                       cli_args_dict, env_vars, expected_token_args,
                       expected_articles_url, expected_label_url, expect_label_call=True):
 
-        mock_get_token.return_value = "mock_token_val"
+        # mock_get_token.return_value = "mock_token_val" # Original line
+        # New side effect to simulate global WALLABAG_TOKEN being set
+        def mock_get_token_side_effect(*args, **kwargs):
+            wallabag_labeler.WALLABAG_TOKEN = "mock_token_val" # Simulate setting the global token
+            return "mock_token_val"
+        mock_get_token.side_effect = mock_get_token_side_effect
+
         mock_get_all_articles.return_value = [{"id":1, "pages":0, "size":100, "reading_time":0}]
         mock_label_articles.return_value = 1
 
@@ -267,5 +273,3 @@ class TestWallabagLabeler(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
-
-```

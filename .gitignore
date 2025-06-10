@@ -22,3 +22,5 @@ build/
 dist/
 *.egg-info/
 .eggs/
+settings.json
+.env

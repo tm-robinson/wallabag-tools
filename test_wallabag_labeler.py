@@ -7,6 +7,9 @@ import argparse # Import argparse to create Namespace objects for mocking
 # Save the original os.getenv to restore it later if necessary, though patch.dict is cleaner
 # _original_getenv = os.getenv
 
+from datetime import datetime, timedelta
+
+
 class TestWallabagLabeler(unittest.TestCase):
 
     def setUp(self):
@@ -273,3 +276,182 @@ class TestWallabagLabeler(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
+
+
+class TestLabelOldArticles(unittest.TestCase):
+    def setUp(self):
+        """Set up for test methods."""
+        # Set a dummy token for tests that require authentication
+        wallabag_labeler.WALLABAG_TOKEN = "test_dummy_token"
+        self.instance_url = "http://fake-instance.com"
+        # It's good practice to also patch load_dotenv if your main script calls it globally,
+        # to prevent .env files from interfering with tests.
+        self.load_dotenv_patcher = patch('wallabag_labeler.load_dotenv')
+        self.mock_load_dotenv = self.load_dotenv_patcher.start()
+
+    def tearDown(self):
+        """Clean up after test methods."""
+        wallabag_labeler.WALLABAG_TOKEN = None # Reset global token
+        self.load_dotenv_patcher.stop()
+
+    @patch('wallabag_labeler.requests.post')
+    def test_label_old_articles_identifies_old(self, mock_post):
+        """Test that an old article is correctly identified and an API call is made."""
+        mock_response = MagicMock()
+        mock_response.raise_for_status.return_value = None # Simulate successful post
+        mock_post.return_value = mock_response
+
+        now = datetime.utcnow()
+        articles = [
+            {"id": 1, "title": "Old Article", "created_at": (now - timedelta(days=100)).isoformat() + 'Z'},
+            {"id": 2, "title": "New Article", "created_at": (now - timedelta(days=30)).isoformat() + 'Z'}
+        ]
+
+        labeled_count = wallabag_labeler.label_old_articles(self.instance_url, articles, dry_run=False)
+
+        self.assertEqual(labeled_count, 1)
+        mock_post.assert_called_once_with(
+            f"{self.instance_url}/api/entries/1/tags",
+            headers={"Authorization": f"Bearer {wallabag_labeler.WALLABAG_TOKEN}", "Content-Type": "application/json"},
+            data='{"tags": "old"}'
+        )
+
+    @patch('wallabag_labeler.requests.post')
+    def test_label_old_articles_dry_run(self, mock_post):
+        """Test dry_run mode identifies an old article but does not call API."""
+        now = datetime.utcnow()
+        articles = [
+            {"id": 1, "title": "Old Article", "created_at": (now - timedelta(days=100)).isoformat() + 'Z'},
+            {"id": 2, "title": "New Article", "created_at": (now - timedelta(days=30)).isoformat() + 'Z'}
+        ]
+
+        labeled_count = wallabag_labeler.label_old_articles(self.instance_url, articles, dry_run=True)
+
+        self.assertEqual(labeled_count, 1)
+        mock_post.assert_not_called()
+
+    @patch('wallabag_labeler.requests.post')
+    def test_label_old_articles_no_old_articles(self, mock_post):
+        """Test no API calls are made if no articles are old."""
+        now = datetime.utcnow()
+        articles = [
+            {"id": 1, "title": "New Article 1", "created_at": (now - timedelta(days=30)).isoformat() + 'Z'},
+            {"id": 2, "title": "New Article 2", "created_at": (now - timedelta(days=60)).isoformat() + 'Z'} # Still less than ~90 days
+        ]
+
+        labeled_count = wallabag_labeler.label_old_articles(self.instance_url, articles, dry_run=False)
+
+        self.assertEqual(labeled_count, 0)
+        mock_post.assert_not_called()
+
+    @patch('wallabag_labeler.requests.post')
+    def test_label_old_articles_missing_created_at(self, mock_post):
+        """Test articles with missing 'created_at' are skipped."""
+        now = datetime.utcnow()
+        articles = [
+            {"id": 1, "title": "Missing Created At"},
+            {"id": 2, "title": "Null Created At", "created_at": None},
+            {"id": 3, "title": "Old Article", "created_at": (now - timedelta(days=100)).isoformat() + 'Z'}
+        ]
+
+        # Expect only article 3 to be processed for labeling
+        labeled_count = wallabag_labeler.label_old_articles(self.instance_url, articles, dry_run=True)
+        self.assertEqual(labeled_count, 1) # Only the valid old article
+        mock_post.assert_not_called() # Dry run
+
+        # Test actual call for the valid one
+        labeled_count_actual_run = wallabag_labeler.label_old_articles(self.instance_url, articles, dry_run=False)
+        self.assertEqual(labeled_count_actual_run, 1)
+        mock_post.assert_called_once_with(
+            f"{self.instance_url}/api/entries/3/tags",
+            headers={"Authorization": f"Bearer {wallabag_labeler.WALLABAG_TOKEN}", "Content-Type": "application/json"},
+            data='{"tags": "old"}'
+        )
+
+    @patch('wallabag_labeler.requests.post')
+    def test_label_old_articles_bad_date_format(self, mock_post):
+        """Test articles with invalid 'created_at' format are skipped."""
+        now = datetime.utcnow()
+        articles = [
+            {"id": 1, "title": "Bad Date Format", "created_at": "not-a-date-string"},
+            {"id": 2, "title": "Another Bad Format", "created_at": "2023/01/01"},
+            {"id": 3, "title": "Old Article", "created_at": (now - timedelta(days=100)).isoformat() + 'Z'}
+        ]
+
+        labeled_count = wallabag_labeler.label_old_articles(self.instance_url, articles, dry_run=True)
+        self.assertEqual(labeled_count, 1) # Only the valid old article
+        mock_post.assert_not_called() # Dry run
+
+        labeled_count_actual_run = wallabag_labeler.label_old_articles(self.instance_url, articles, dry_run=False)
+        self.assertEqual(labeled_count_actual_run, 1)
+        mock_post.assert_called_once_with(
+            f"{self.instance_url}/api/entries/3/tags",
+            headers={"Authorization": f"Bearer {wallabag_labeler.WALLABAG_TOKEN}", "Content-Type": "application/json"},
+            data='{"tags": "old"}'
+        )
+
+    @patch('wallabag_labeler.requests.post')
+    def test_label_old_articles_api_error_during_labeling(self, mock_post):
+        """Test that if API call fails, the article is not counted as labeled."""
+        now = datetime.utcnow()
+        articles = [
+            {"id": 1, "title": "Old Article", "created_at": (now - timedelta(days=100)).isoformat() + 'Z'}
+        ]
+
+        # Configure mock_post to raise an HTTPError
+        mock_post.side_effect = wallabag_labeler.requests.exceptions.HTTPError("API Error")
+
+        labeled_count = wallabag_labeler.label_old_articles(self.instance_url, articles, dry_run=False)
+
+        self.assertEqual(labeled_count, 0) # Labeling failed
+        mock_post.assert_called_once() # Ensure it was attempted
+
+    def test_label_old_articles_no_articles(self):
+        """Test behavior with an empty list of articles."""
+        labeled_count = wallabag_labeler.label_old_articles(self.instance_url, [], dry_run=False)
+        self.assertEqual(labeled_count, 0)
+
+    def test_label_old_articles_no_token(self):
+        """Test behavior when no API token is set."""
+        wallabag_labeler.WALLABAG_TOKEN = None
+        articles = [{"id": 1, "title": "Old Article", "created_at": (datetime.utcnow() - timedelta(days=100)).isoformat() + 'Z'}]
+        labeled_count = wallabag_labeler.label_old_articles(self.instance_url, articles, dry_run=False)
+        self.assertEqual(labeled_count, 0)
+
+    def test_label_old_articles_no_instance_url(self):
+        """Test behavior when no instance_url is provided."""
+        articles = [{"id": 1, "title": "Old Article", "created_at": (datetime.utcnow() - timedelta(days=100)).isoformat() + 'Z'}]
+        labeled_count = wallabag_labeler.label_old_articles(None, articles, dry_run=False)
+        self.assertEqual(labeled_count, 0)
+
+    # Example of a date format that the function should handle (e.g. with +0000 timezone)
+    @patch('wallabag_labeler.requests.post')
+    def test_label_old_articles_handles_timezone_formats(self, mock_post):
+        """Test handling of various ISO 8601 date formats."""
+        mock_response = MagicMock()
+        mock_response.raise_for_status.return_value = None
+        mock_post.return_value = mock_response
+
+        now = datetime.utcnow()
+        three_months_ago_exact = now - timedelta(days=3*30) # Approximation used in main script
+
+        articles = [
+            {"id": 1, "title": "Old Article with Z", "created_at": (three_months_ago_exact - timedelta(days=1)).isoformat() + 'Z'},
+            {"id": 2, "title": "Old Article with +00:00", "created_at": (three_months_ago_exact - timedelta(days=1)).isoformat() + "+00:00"},
+            {"id": 3, "title": "Old Article with +0000", "created_at": (three_months_ago_exact - timedelta(days=1)).replace(microsecond=0).isoformat() + "+0000"}, # fromisoformat needs seconds
+            {"id": 4, "title": "New Article with Z", "created_at": (now - timedelta(days=1)).isoformat() + 'Z'},
+            # This date is tricky because fromisoformat in Python < 3.11 doesn't like "YYYY-MM-DDTHH:MM:SS-HHMM" without colon in offset
+            # The implemented stripping logic should handle "YYYY-MM-DDTHH:MM:SS" before passing to fromisoformat if an offset is detected
+            {"id": 5, "title": "Old Article with -05:00", "created_at": (three_months_ago_exact - timedelta(days=1)).isoformat() + "-05:00"},
+        ]
+
+        labeled_count = wallabag_labeler.label_old_articles(self.instance_url, articles, dry_run=False)
+
+        self.assertEqual(labeled_count, 4) # Expect 1, 2, 3, 5 to be labeled
+        self.assertEqual(mock_post.call_count, 4)
+        mock_post.assert_any_call(f"{self.instance_url}/api/entries/1/tags", headers=unittest.mock.ANY, data='{"tags": "old"}')
+        mock_post.assert_any_call(f"{self.instance_url}/api/entries/2/tags", headers=unittest.mock.ANY, data='{"tags": "old"}')
+        mock_post.assert_any_call(f"{self.instance_url}/api/entries/3/tags", headers=unittest.mock.ANY, data='{"tags": "old"}')
+        mock_post.assert_any_call(f"{self.instance_url}/api/entries/5/tags", headers=unittest.mock.ANY, data='{"tags": "old"}')
+
+unittest.main(argv=['first-arg-is-ignored'], exit=False)

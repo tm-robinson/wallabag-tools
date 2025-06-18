@@ -7,6 +7,17 @@ This script connects to a Wallabag instance, fetches all articles, and identifie
 
 Identified articles will be tagged with the label 'broken'.
 
+## Old Article Tagging
+
+In addition to identifying 'broken' articles, the script can also tag articles that are older than 3 months with an "old" tag.
+
+**Criteria for "old" articles:**
+- The article's creation date (based on the `created_at` field in the API response) is older than 3 months from the current date.
+
+**Important Note on `created_at` field:**
+- The script assumes the presence of a `created_at` field in the Wallabag API response for each article and expects it to be an ISO 8601 formatted date string (e.g., `YYYY-MM-DDTHH:MM:SSZ` or similar variants with timezone information).
+- **If you encounter issues with "old" article tagging, or if articles are not being tagged as expected, please verify that your Wallabag instance provides this field with this name and format.** This assumption was made during development due to the lack of direct API schema access for all possible Wallabag configurations.
+
 ## Prerequisites
 
 - Python 3.6+
@@ -104,9 +115,15 @@ python wallabag_labeler.py --dry-run
 
 ## Notes on Article Fields
 
-- The script currently assumes that the Wallabag API response for articles includes a `pages` field for the number of pages, a `size` field for the content size in bytes, and a `reading_time` field for the estimated reading time in minutes.
-- If your Wallabag version or a custom theme uses different field names, or if these fields are not available for all article types, the script's ability to identify broken articles may be affected.
-- The interpretation of "zero pages" or "zero reading time" can be ambiguous. Wallabag articles might not always have these fields populated accurately for all content types. The script relies on the presence and values of these fields as reported by the API.
+- The script currently assumes that the Wallabag API response for articles includes:
+    - A `pages` field for the number of pages.
+    - A `size` field for the content size in bytes.
+    - A `reading_time` field for the estimated reading time in minutes.
+    - A `created_at` field for the article's creation date (expected in ISO 8601 format).
+- If your Wallabag version or a custom theme uses different field names for these attributes, or if these fields are not available for all article types, the script's functionality may be affected.
+- The interpretation of "zero pages" or "zero reading time" can be ambiguous. Wallabag articles might not always have these fields populated accurately for all content types.
+- Similarly, the accuracy and presence of the `created_at` field are crucial for the "old" article tagging. **Please verify this field's name and format in your Wallabag API responses if "old" tagging does not work as expected.**
+- The script relies on the presence and values of these fields as reported by the API.
 
 ## Disclaimer
 

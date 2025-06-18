@@ -1,10 +1,13 @@
 import requests
 import json
 import argparse
+import urllib.parse
 import logging
 import os
 from datetime import datetime, timedelta
+from datetime import timezone
 from dotenv import load_dotenv
+from dateutil.relativedelta import relativedelta
 
 # Load environment variables from .env file if it exists
 load_dotenv()
@@ -148,6 +151,11 @@ def label_broken_articles(instance_url, articles, dry_run=False):
             logging.warning(f"Skipping article due to missing ID: {article_title}")
             continue
 
+        tags = article.get("tags", [])
+        tag_names = [tag.get('label') for tag in tags if isinstance(tag, dict) and tag.get('label')]
+        if "broken" in tag_names:
+            logging.debug(f"Article '{article_title}' (ID: {article_id}) already labeled as 'broken'. Skipping broken check.")
+            continue
         page_count = article.get("pages")
         file_size_bytes = article.get("size")
         reading_time_minutes = article.get("reading_time") # Assuming this field exists
@@ -199,15 +207,38 @@ def label_broken_articles(instance_url, articles, dry_run=False):
     logging.info(f"Finished processing articles. Identified {labeled_count} broken articles out of {len(articles)} processed.")
     return labeled_count
 
-def label_old_articles(instance_url, articles, dry_run=False):
-    """ Filters articles and labels those older than 3 months. """
+def remove_tag_from_article(instance_url, article_id, tag):
+    """ Removes a tag from a Wallabag article. """
     global WALLABAG_TOKEN
     if not WALLABAG_TOKEN:
-        logging.error("No API token available for labeling old articles. Please authenticate first.")
+        logging.error("No API token available for removing tags. Please authenticate first.")
+        return False
+
+    encoded_tag = urllib.parse.quote(tag)
+    remove_tag_url = f"{instance_url.rstrip('/')}/api/entries/{article_id}/tags/{encoded_tag}"
+    headers = {"Authorization": f"Bearer {WALLABAG_TOKEN}"}
+
+    try:
+        response = requests.request("PUT", remove_tag_url, headers=headers) # Wallabag uses PUT for removing tags
+        response.raise_for_status()
+        logging.debug(f"Successfully removed tag '{tag}' from article ID {article_id}.")
+        return True
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error removing tag '{tag}' from article ID {article_id}: {e}")
+        if response is not None:
+            logging.error(f"  Response content: {response.text}")
+        return False
+
+def label_old_very_old_articles(instance_url, articles, dry_run=False):
+    """ Filters articles and labels those older than 3 months as 'old' and those older than 1 year as 'very-old'. """
+    global WALLABAG_TOKEN
+    if not WALLABAG_TOKEN:
+        logging.error("No API token available for labeling old/very-old articles. Please authenticate first.")
         return 0
     if not instance_url:
-        logging.error("Instance URL is not configured. Cannot label old articles.")
+        logging.error("Instance URL is not configured. Cannot label old/very-old articles.")
         return 0
+
 
     if not articles:
         logging.info("No articles to process for old labeling.")
@@ -217,11 +248,10 @@ def label_old_articles(instance_url, articles, dry_run=False):
     processed_count = 0
     headers = {"Authorization": f"Bearer {WALLABAG_TOKEN}", "Content-Type": "application/json"}
 
-    three_months_ago = datetime.utcnow() - timedelta(days=3*30) # Approximation of 3 months
+    labeled_old_count = 0
+    labeled_very_old_count = 0
 
-    logging.info(f"Processing {len(articles)} articles for old labeling (older than {three_months_ago.strftime('%Y-%m-%d')})...")
     for article in articles:
-        processed_count += 1
         article_id = article.get("id")
         article_title = article.get("title", f"ID: {article_id}")
 
@@ -229,66 +259,104 @@ def label_old_articles(instance_url, articles, dry_run=False):
             logging.warning(f"Skipping article due to missing ID: {article_title} (old labeling)")
             continue
 
+        tags = article.get("tags", [])
+        tag_id_for_old = None
+        for t in tags:
+            if t['label'] == 'old':
+                tag_id_for_old = t['id']
+        tag_names = [tag.get('label') for tag in tags if isinstance(tag, dict) and tag.get('label')]
+        if "very-old" in tag_names:
+ # This check should come after we've potentially added 'very-old' if an article was already 'old'
+            logging.debug(f"Article '{article_title}' (ID: {article_id}) already labeled as 'very-old'. Skipping old/very-old check.")
+
         # IMPORTANT: User needs to verify 'created_at' is the correct field name and its format.
         created_at_str = article.get("created_at")
 
         if not created_at_str:
-            logging.warning(f"Article '{article_title}' (ID: {article_id}) missing 'created_at' field. Skipping for old labeling.")
+            logging.warning(f"Article '{article_title}' (ID: {article_id}) missing 'created_at' field. Skipping for old/very-old labeling.")
             continue
 
         if not isinstance(created_at_str, str):
-            logging.warning(f"Article '{article_title}' (ID: {article_id}) 'created_at' field is not a string: {created_at_str}. Skipping for old labeling.")
+            logging.warning(f"Article '{article_title}' (ID: {article_id}) 'created_at' field is not a string: {created_at_str}. Skipping for old/very-old labeling.")
             continue
 
         try:
-            # Wallabag uses ISO 8601 format, e.g., "2023-10-25T10:00:00+0000"
-            # Remove 'Z' or timezone offset for naive datetime comparison with utcnow()
-            if created_at_str.endswith('Z'):
-                created_at_str = created_at_str[:-1]
-            elif '+' in created_at_str: # Handles +00:00, +0000 etc.
-                created_at_str = created_at_str.split('+')[0]
-            elif '-' in created_at_str[10:]: # Handles -00:00, -0000, after YYYY-MM-DD part
-                # Find the last dash that is part of a timezone offset (e.g. YYYY-MM-DDTHH:MM:SS-HH:MM)
-                # A simple split might not be robust enough if time also contains hyphens
-                # However, standard ISO 8601 date/time separator is T.
-                # If 'T' is present, we can be more specific.
-                if 'T' in created_at_str:
-                    date_part, time_part = created_at_str.split('T')
-                    if '-' in time_part: # Check if timezone offset is negative
-                         time_part_no_offset = time_part.split('-')[0]
-                         created_at_str = f"{date_part}T{time_part_no_offset}"
-
+            # Use datetime.fromisoformat for robust ISO 8601 parsing
+            # fromisoformat handles timezone offsets correctly.
             article_date = datetime.fromisoformat(created_at_str)
-            # Assuming article_date is UTC after stripping timezone info, make it naive
-            # This is a simplification; proper timezone handling can be complex.
         except ValueError as e:
-            logging.warning(f"Article '{article_title}' (ID: {article_id}) has invalid 'created_at' format ('{created_at_str}'): {e}. Skipping for old labeling.")
+            logging.warning(f"Article '{article_title}' (ID: {article_id}) has invalid 'created_at' format ('{created_at_str}'). Skipping for old/very-old labeling.")
             continue
 
-        if article_date < three_months_ago:
-            logging.info(f"Article '{article_title}' (ID: {article_id}, Created: {article_date.strftime('%Y-%m-%d')}) identified as OLD.")
+        now_utc = datetime.utcnow().replace(tzinfo=None) # Make utcnow naive for comparison with potentially naive article_date
+
+        # Calculate time difference using relativedelta for more accurate month/year calculation
+        # Ensure both datetimes are timezone-aware or timezone-naive for consistent comparison
+        # If article_date is timezone-aware, make now_utc timezone-aware in the same zone or convert both to UTC
+        # For simplicity and assuming wallabag dates are effectively UTC or can be treated as such after stripping:
+
+        # Make both datetimes timezone-aware in UTC for comparison
+        if article_date.tzinfo is None:
+            article_date = article_date.replace(tzinfo=timezone.utc)
+        now_utc = datetime.now(timezone.utc)
+
+
+        # Check if the article is already labeled as 'very-old'. If so, skip.
+        current_tags = [tag.get('label') for tag in article.get('tags', []) if isinstance(tag, dict)]
+        if "very-old" in current_tags and 'old' not in current_tags:
+             logging.debug(f"Article '{article_title}' (ID: {article_id}) already labeled as 'very-old' and not as 'old'. Skipping old/very-old check.")
+             continue
+
+        label_to_apply = None
+        time_difference = relativedelta(now_utc, article_date)
+        if time_difference.years >= 1:
+            label_to_apply = "very-old"
+            logging.debug(f"Article '{article_title}' (ID: {article_id}, Created: {article_date.strftime('%Y-%m-%d')}) identified as VERY-OLD.")
+        elif time_difference.months >= 3:
+            label_to_apply = "old"
+            logging.debug(f"Article '{article_title}' (ID: {article_id}, Created: {article_date.strftime('%Y-%m-%d')}) identified as OLD.")
+
+        if label_to_apply:
+            processed_count += 1
             if not dry_run:
                 label_url = f"{instance_url.rstrip('/')}/api/entries/{article_id}/tags"
-                payload = json.dumps({"tags": "old"})
+                payload = json.dumps({"tags": label_to_apply})
                 response_label = None
+
+                # If labeling as very-old, remove the 'old' label if present
+                if label_to_apply == 'very-old' and 'old' in current_tags:
+                    response_label = requests.delete(f"{label_url}/{tag_id_for_old}", headers=headers)
+                    response_label.raise_for_status()
+                    logging.info(f"  Removed the 'old' label from article {article_id}")
+                elif label_to_apply == 'old' and 'very-old' in current_tags:
+                    pass
+                     # If it's old but was very-old, might need to handle this? Not requested, but a thought.
                 try:
                     response_label = requests.post(label_url, headers=headers, data=payload)
                     response_label.raise_for_status()
-                    logging.info(f"  Successfully labeled article ID {article_id} as 'old'.")
-                    labeled_count += 1
+                    logging.info(f"  Successfully labeled article ID {article_id} as '{label_to_apply}'.")
+                    if label_to_apply == "old":
+                        labeled_old_count += 1
+                    elif label_to_apply == "very-old":
+                        labeled_very_old_count += 1
                 except requests.exceptions.HTTPError as e:
-                    logging.error(f"  HTTP error labeling article ID {article_id} as 'old': {e}")
+                    logging.error(f"  HTTP error labeling article ID {article_id} as '{label_to_apply}': {e}")
                     if e.response is not None:
                         logging.error(f"  Response content: {e.response.text}")
                     else:
                         logging.error("  No response content from server.")
                 except requests.exceptions.RequestException as e:
-                    logging.error(f"  Request error labeling article ID {article_id} as 'old': {e}")
+                    logging.error(f"  Request error labeling article ID {article_id} as '{label_to_apply}': {e}")
                 except json.JSONDecodeError:
-                    logging.error(f"  Error decoding labeling response for article ID {article_id} (old labeling): {response_label.text if response_label is not None else 'No response object'}")
+                    logging.error(f"  Error decoding labeling response for article ID {article_id} ('{label_to_apply}' labeling): {response_label.text if response_label is not None else 'No response object'}")
             else:
-                logging.info(f"  DRY RUN: Would label article ID {article_id} as 'old'.")
-                labeled_count += 1
+                logging.info(f"  DRY RUN: Would label article ID {article_id} as '{label_to_apply}'.")
+                # In dry run, also note if 'old' would be removed
+                if label_to_apply == 'very-old' and 'old' in current_tags:
+                    logging.info(f"  DRY RUN: Would remove 'old' label from article ID {article_id}.")
+
+                if label_to_apply == "old": labeled_old_count +=1
+                elif label_to_apply == "very-old": labeled_very_old_count += 1
 
         if processed_count > 0 and processed_count % 100 == 0 and processed_count < len(articles):
             logging.info(f"Processed {processed_count}/{len(articles)} articles for old labeling...")
@@ -296,7 +364,7 @@ def label_old_articles(instance_url, articles, dry_run=False):
     logging.info(f"Finished processing for old articles. Identified/labeled {labeled_count} old articles out of {len(articles)} processed.")
     return labeled_count
 
-def main():
+def main(): # Main function
     # Global keyword is not needed here for WALLABAG_TOKEN as we are passing it to functions
     # or functions are accessing the global var directly.
     # The main change is that get_wallabag_token will set the global WALLABAG_TOKEN.
@@ -358,12 +426,14 @@ def main():
                 else:
                     logging.info(f"Processing complete for broken articles. Labeled {labeled_count} articles as 'broken'.")
 
-                # === Add call for labeling old articles ===
-                old_labeled_count = label_old_articles(instance_url, articles, dry_run=args.dry_run)
+                # === Add call for labeling old and very-old articles ===
+                old_labeled_count = label_old_very_old_articles(instance_url, articles, dry_run=args.dry_run)
+                # Note: label_old_very_old_articles now returns total labeled count (old + very-old)
+                # The specific counts for old and very-old are logged within that function in dry_run mode.
                 if args.dry_run:
-                    logging.info(f"DRY RUN: Identified {old_labeled_count} articles that would be labeled 'old'.")
+                    logging.info(f"DRY RUN COMPLETE: Identified {old_labeled_count} articles that would be labeled 'old' or 'very-old'. See logs above for breakdown.")
                 else:
-                    logging.info(f"Processing complete for old articles. Labeled {old_labeled_count} articles as 'old'.")
+                    logging.info(f"Processing complete for old/very-old articles. Labeled {old_labeled_count} articles in total. See logs above for breakdown.")
             else:
                 logging.error("Failed to fetch articles or no articles found (function returned None). Cannot proceed with labeling.")
         else:

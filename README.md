@@ -1,56 +1,37 @@
-# Wallabag Article Labeler
+# Wallabag Utilities: Labeler and RSS Importer
 
-This script connects to a Wallabag instance, fetches all articles, and identifies articles that are potentially 'broken'. An article is considered broken if it meets one or more of the following criteria:
-- It has zero pages (based on the `pages` field in the API response).
-- Its file size is less than 10KB (based on the `size` field in the API response, assumed to be in bytes).
-- Its reading time is zero minutes (based on the `reading_time` field in the API response).
+This project provides a suite of Python scripts to help manage your Wallabag instance. Currently, it includes two main utilities:
+1.  **Wallabag Article Labeler (`wallabag_labeler.py`)**: Identifies and tags 'broken' or 'old'/'very-old' articles in your Wallabag instance.
+2.  **Wallabag RSS Importer (`wallabag_rss_importer.py`)**: Fetches new articles from specified RSS feeds and adds them to your Wallabag instance.
 
-Identified articles will be tagged with the label 'broken'.
+## Common Setup
 
-## Old Article Tagging
+The following setup instructions apply to both scripts.
 
-In addition to identifying 'broken' articles, the script can also tag articles that are older than 3 months with an "old" tag.
-
-**Criteria for "old" articles:**
-- The article's creation date (based on the `created_at` field in the API response) is older than 3 months from the current date.
-
-**Important Note on `created_at` field:**
-- The script assumes the presence of a `created_at` field in the Wallabag API response for each article and expects it to be an ISO 8601 formatted date string (e.g., `YYYY-MM-DDTHH:MM:SSZ` or similar variants with timezone information).
-- **If you encounter issues with "old" article tagging, or if articles are not being tagged as expected, please verify that your Wallabag instance provides this field with this name and format.** This assumption was made during development due to the lack of direct API schema access for all possible Wallabag configurations.
-
-## Prerequisites
+### Prerequisites
 
 - Python 3.6+
-- `requests` library
-- `python-dotenv` library
+- Required Python libraries are listed in `requirements.txt`. These include `requests`, `python-dotenv`, `feedparser` (for the RSS importer), and `python-dateutil`.
 
-Install required libraries:
-```bash
-pip install requests python-dotenv
-```
-Alternatively, if a `requirements.txt` file is present:
+Install required libraries using `requirements.txt`:
 ```bash
 pip install -r requirements.txt
 ```
 
 - A Wallabag instance and API credentials.
 
-## Wallabag API Credentials
+### Wallabag API Credentials
 
-To use this script, you need to create API client credentials in your Wallabag instance:
-1. Log in to your Wallabag instance.
-2. Go to `Developer` -> `Create a new client`.
-3. Fill in a `Client name` (e.g., "Article Labeler Script").
-4. The `Client URI` can be a placeholder like `http://localhost`.
-5. After creation, you will receive a `Client ID` and `Client secret`. Keep these safe.
+To use these scripts, you need to create API client credentials in your Wallabag instance:
+1.  Log in to your Wallabag instance.
+2.  Go to `Developer` -> `Create a new client`.
+3.  Fill in a `Client name` (e.g., "Wallabag Scripts").
+4.  The `Client URI` can be a placeholder like `http://localhost`.
+5.  After creation, you will receive a `Client ID` and `Client secret`. Keep these safe.
 
-## Configuration
+### Configuration using `.env` file (Recommended)
 
-You can configure the script using command-line arguments or a `.env` file.
-
-### Using a `.env` file (Recommended for credentials)
-
-Create a file named `.env` in the same directory as the script with the following content:
+Both scripts can be configured using a `.env` file for common settings, especially credentials. Create a file named `.env` in the same directory as the scripts with the following content:
 
 ```env
 WALLABAG_INSTANCE_URL=https://your.wallabag.instance.com
@@ -59,53 +40,62 @@ WALLABAG_CLIENT_SECRET=your_client_secret_here
 WALLABAG_USERNAME=your_wallabag_username
 WALLABAG_PASSWORD=your_wallabag_password
 ```
-
 Replace the placeholder values with your actual Wallabag details.
 
 ### Configuration Precedence
 
-The script uses the following order of precedence for configuration values:
-1. Command-line arguments (highest precedence)
-2. Values from the `.env` file
-3. Default values (lowest precedence, e.g., for instance URL)
+For shared arguments (like Wallabag credentials), the scripts use the following order of precedence:
+1.  Command-line arguments (highest precedence)
+2.  Values from the `.env` file
+3.  Default values (lowest precedence, e.g., for instance URL)
 
-## Usage
+---
 
-Run the script from your terminal:
+## Wallabag Article Labeler (`wallabag_labeler.py`)
+
+This script connects to your Wallabag instance, fetches all articles, and applies labels based on defined criteria.
+
+**Features:**
+-   **Broken Article Tagging**: Identifies articles that are potentially 'broken' (e.g., zero pages, small file size, zero reading time) and tags them with 'broken'.
+-   **Old/Very-Old Article Tagging**: Tags articles older than 3 months as 'old' and articles older than 1 year as 'very-old'.
+
+### Usage: `wallabag_labeler.py`
 
 ```bash
 python wallabag_labeler.py [OPTIONS]
 ```
 
-### Arguments
+#### Arguments for `wallabag_labeler.py`:
 
-- `--instance-url URL`: The full URL of your Wallabag instance.
-  - Default (if not provided via CLI or `.env`): `https://app.wallabag.it`
-  - Environment variable: `WALLABAG_INSTANCE_URL`
-- `--client-id ID`: Your Wallabag API client ID.
-  - Environment variable: `WALLABAG_CLIENT_ID`
-- `--client-secret SECRET`: Your Wallabag API client secret.
-  - Environment variable: `WALLABAG_CLIENT_SECRET`
-- `--username USER`: Your Wallabag username.
-  - Environment variable: `WALLABAG_USERNAME`
-- `--password PASS`: Your Wallabag password.
-  - Environment variable: `WALLABAG_PASSWORD`
-- `--dry-run`: (Optional) If provided, the script will identify and report broken articles but will not make any changes (i.e., will not add the 'broken' tag).
-- `--verbose` or `-v`: (Optional) Enable verbose logging, which includes DEBUG level messages. This can be helpful for troubleshooting.
+-   `--instance-url URL`: The full URL of your Wallabag instance.
+    -   Default (if not provided via CLI or `.env`): `https://app.wallabag.it`
+    -   Environment variable: `WALLABAG_INSTANCE_URL`
+-   `--client-id ID`: Your Wallabag API client ID.
+    -   Environment variable: `WALLABAG_CLIENT_ID`
+-   `--client-secret SECRET`: Your Wallabag API client secret.
+    -   Environment variable: `WALLABAG_CLIENT_SECRET`
+-   `--username USER`: Your Wallabag username.
+    -   Environment variable: `WALLABAG_USERNAME`
+-   `--password PASS`: Your Wallabag password.
+    -   Environment variable: `WALLABAG_PASSWORD`
+-   `--dry-run`: (Optional) If provided, the script will identify and report articles but will not make any changes (i.e., will not add tags).
+-   `--verbose` or `-v`: (Optional) Enable verbose logging (DEBUG level).
 
-If credential arguments (`--client-id`, `--client-secret`, `--username`, `--password`) are not provided on the command line, the script will attempt to load them from the `.env` file. The `--instance-url` will also be loaded from `.env` if not specified on the command line, and if not in `.env` either, it will default to `https://app.wallabag.it`.
-
-### Example
+#### Example: `wallabag_labeler.py`
 
 Using command-line arguments:
 ```bash
-python wallabag_labeler.py --instance-url https://my.wallabag.server                            --client-id 'my_client_id'                            --client-secret 'my_client_secret'                            --username 'my_user'                            --password 'my_pass'
+python wallabag_labeler.py --instance-url https://my.wallabag.server \
+                           --client-id 'my_client_id' \
+                           --client-secret 'my_client_secret' \
+                           --username 'my_user' \
+                           --password 'my_pass'
 ```
 
-Using a `.env` file (and potentially overriding the instance URL via CLI):
+Using a `.env` file for credentials:
 ```bash
-# Assuming .env file is configured with credentials
-python wallabag_labeler.py --instance-url https://another.wallabag.server
+# Assuming .env file is configured
+python wallabag_labeler.py
 ```
 
 To perform a dry run (assuming `.env` is configured):
@@ -113,19 +103,77 @@ To perform a dry run (assuming `.env` is configured):
 python wallabag_labeler.py --dry-run
 ```
 
-## Notes on Article Fields
+### Notes on Article Fields (for `wallabag_labeler.py`)
 
-- The script currently assumes that the Wallabag API response for articles includes:
-    - A `pages` field for the number of pages.
-    - A `size` field for the content size in bytes.
-    - A `reading_time` field for the estimated reading time in minutes.
-    - A `created_at` field for the article's creation date (expected in ISO 8601 format).
-- If your Wallabag version or a custom theme uses different field names for these attributes, or if these fields are not available for all article types, the script's functionality may be affected.
-- The interpretation of "zero pages" or "zero reading time" can be ambiguous. Wallabag articles might not always have these fields populated accurately for all content types.
-- Similarly, the accuracy and presence of the `created_at` field are crucial for the "old" article tagging. **Please verify this field's name and format in your Wallabag API responses if "old" tagging does not work as expected.**
-- The script relies on the presence and values of these fields as reported by the API.
+-   The script's labeling logic assumes that the Wallabag API response for articles includes:
+    -   `pages`: Number of pages.
+    -   `size`: Content size in bytes.
+    -   `reading_time`: Estimated reading time in minutes.
+    -   `created_at`: Article's creation date (ISO 8601 format).
+-   Discrepancies in these field names or formats in your Wallabag instance might affect labeling accuracy.
+-   The interpretation of "zero pages" or "zero reading time" can be ambiguous.
+-   The `created_at` field is crucial for old/very-old tagging. Verify its name and format if issues arise.
+
+---
+
+## Wallabag RSS Importer (`wallabag_rss_importer.py`)
+
+This script fetches new articles from a list of specified RSS/Atom feeds and adds them to your Wallabag instance.
+
+**Features:**
+-   Imports articles published within the last 30 days (by default).
+-   Tags newly imported articles with "rss" (by default).
+
+### Configuration for RSS Feeds (for `wallabag_rss_importer.py`)
+
+The list of RSS feeds to process is defined in a plain text file. By default, the script looks for `rss_feeds.txt` in its directory.
+-   Each line in the file should be a valid URL to an RSS or Atom feed.
+-   Lines starting with a `#` (hash symbol) are treated as comments and ignored.
+-   Empty lines are also ignored.
+
+**Example `rss_feeds.txt`:**
+```txt
+# My Favorite News Feeds
+http://example.com/news.xml
+https://blog.example.org/feed.rss
+
+# Tech Blogs
+# http://tech.example.dev/commented_out.xml
+http://another.tech.blog/atom.xml
+```
+
+### Usage: `wallabag_rss_importer.py`
+
+```bash
+python wallabag_rss_importer.py [OPTIONS]
+```
+
+#### Arguments for `wallabag_rss_importer.py`:
+
+-   `--instance-url URL`: (Shared with Labeler - see Common Setup)
+-   `--client-id ID`: (Shared with Labeler - see Common Setup)
+-   `--client-secret SECRET`: (Shared with Labeler - see Common Setup)
+-   `--username USER`: (Shared with Labeler - see Common Setup)
+-   `--password PASS`: (Shared with Labeler - see Common Setup)
+-   `--rss-feeds-file FILEPATH`: Path to the text file containing RSS feed URLs.
+    -   Default: `rss_feeds.txt`
+-   `--dry-run`: (Optional) If provided, the script will identify articles to add but will not actually add them to Wallabag.
+-   `--verbose` or `-v`: (Optional) Enable verbose logging (DEBUG level).
+
+#### Example: `wallabag_rss_importer.py`
+
+Assuming `.env` is configured with credentials and `rss_feeds.txt` exists in the default location:
+```bash
+python wallabag_rss_importer.py
+```
+
+Using a specific feed file path and performing a dry run:
+```bash
+python wallabag_rss_importer.py --rss-feeds-file ./config/my_personal_feeds.txt --dry-run
+```
+
+---
 
 ## Disclaimer
 
-Use this script at your own risk. Always perform a `--dry-run` first to understand what changes will be made. Ensure you have backups of your Wallabag data if you are concerned about accidental modifications.
-```
+Use these scripts at your own risk. Always perform a `--dry-run` first to understand what changes will be made, especially with the `wallabag_labeler.py` script. Ensure you have backups of your Wallabag data if you are concerned about accidental modifications.

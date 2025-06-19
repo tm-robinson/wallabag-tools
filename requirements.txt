@@ -1,3 +1,4 @@
 python-dotenv==0.21.0
 requests>=2.20.0
 python-dateutil
+feedparser

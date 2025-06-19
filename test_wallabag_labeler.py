@@ -455,3 +455,5 @@ class TestLabelOldArticles(unittest.TestCase):
         mock_post.assert_any_call(f"{self.instance_url}/api/entries/5/tags", headers=unittest.mock.ANY, data='{"tags": "old"}')
 
 unittest.main(argv=['first-arg-is-ignored'], exit=False)
+
+# TestRSSFunctionality class and its specific imports (json, feedparser, dateutil.parser, timezone) have been removed.

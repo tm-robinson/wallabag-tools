@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from datetime import timezone
 from dotenv import load_dotenv
 from dateutil.relativedelta import relativedelta
+# Removed feedparser and dateutil.parser
 
 # Load environment variables from .env file if it exists
 load_dotenv()
@@ -364,6 +365,12 @@ def label_old_very_old_articles(instance_url, articles, dry_run=False):
     logging.info(f"Finished processing for old articles. Identified/labeled {labeled_count} old articles out of {len(articles)} processed.")
     return labeled_count
 
+# Removed RSS specific functions:
+# - load_rss_feeds
+# - fetch_articles_from_feed
+# - is_recent_article
+# - add_article_to_wallabag (this name was used for RSS adding, existing labeling functions handle their own API calls)
+
 def main(): # Main function
     # Global keyword is not needed here for WALLABAG_TOKEN as we are passing it to functions
     # or functions are accessing the global var directly.
@@ -379,6 +386,7 @@ def main(): # Main function
 
     parser.add_argument("--dry-run", action="store_true", help="Run the script without making any changes to Wallabag articles.")
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging (DEBUG level).")
+    # Removed --process-rss argument
 
     args = parser.parse_args()
 
@@ -438,6 +446,7 @@ def main(): # Main function
                 logging.error("Failed to fetch articles or no articles found (function returned None). Cannot proceed with labeling.")
         else:
             logging.error("Authentication failed. Please check your credentials and instance URL. Exiting.")
+            # Removed RSS processing block from here
 
     logging.info("Script finished.")
 

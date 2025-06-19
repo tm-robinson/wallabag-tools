@@ -1,0 +1,4 @@
+# Example Feeds
+http://example.com/feed1.xml
+http://example.com/anotherfeed.rss
+# http://example.com/commented_out_feed.xml

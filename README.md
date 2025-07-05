@@ -188,8 +188,17 @@ python wallabag_paywall_archiver.py [OPTIONS]
 #### Key Options
 
 - `--paywalled-sites` &mdash; comma separated hostnames treated as paywalled. Defaults to common sites like `wsj.com` and `ft.com`.
+- `--reading-time-threshold` &mdash; minimum reading time that indicates the archived article has more content. Default: 2.
 - `--dry-run` &mdash; perform a trial run without modifying Wallabag.
 - `--verbose` or `-v` &mdash; enable verbose logging.
+
+#### Running Integration Tests
+
+To run only the tests that interact with `archive.is`, execute:
+
+```bash
+pytest test_wallabag_paywall_archiver.py::TestPaywallArchiverReal -vv
+```
 
 ---
 

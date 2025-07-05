@@ -11,6 +11,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 WALLABAG_TOKEN = None
+READING_TIME_THRESHOLD = int(os.getenv("READING_TIME_THRESHOLD", "2"))
 
 DEFAULT_PAYWALLED_HOSTS = [
     "wsj.com",
@@ -167,7 +168,7 @@ def submit_to_archive(article_url):
         logging.error(f"Error submitting {article_url} to archive.is: {e}")
     return None
 
-def process_articles(instance_url, paywall_hosts, dry_run=False):
+def process_articles(instance_url, paywall_hosts, reading_threshold, dry_run=False):
     articles = get_unread_articles(instance_url)
     processed = 0
     for article in articles:
@@ -178,7 +179,7 @@ def process_articles(instance_url, paywall_hosts, dry_run=False):
         if not any(hostname.endswith(h) for h in paywall_hosts):
             continue
         reading_time = article.get('reading_time', 0)
-        if reading_time is None or reading_time > 2:
+        if reading_time is None or reading_time > reading_threshold:
             continue
         article_id = article.get('id')
         processed += 1
@@ -195,7 +196,7 @@ def process_articles(instance_url, paywall_hosts, dry_run=False):
             if add_article_to_wallabag(instance_url, archive_url, tags_list=['archived']):
                 new_articles = get_unread_articles(instance_url)
                 new_item = next((a for a in new_articles if a.get('url') == archive_url or a.get('origin_url') == archive_url), None)
-                if new_item and new_item.get('reading_time', 0) > 2:
+                if new_item and new_item.get('reading_time', 0) > reading_threshold:
                     delete_article_from_wallabag(instance_url, article_id)
         else:
             logging.info(f"DRY RUN: Would add {archive_url} and potentially delete ID {article_id}")
@@ -209,6 +210,8 @@ def main():
     parser.add_argument("--username", default=os.getenv("WALLABAG_USERNAME"), help="Wallabag username")
     parser.add_argument("--password", default=os.getenv("WALLABAG_PASSWORD"), help="Wallabag password")
     parser.add_argument("--paywalled-sites", help="Comma separated list of paywalled hostnames", default=os.getenv("PAYWALLED_SITES"))
+    parser.add_argument("--reading-time-threshold", type=int, default=READING_TIME_THRESHOLD,
+                        help="Minimum reading time that indicates the archive has more content")
     parser.add_argument("--dry-run", action="store_true", help="Run without modifying Wallabag")
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
     args = parser.parse_args()
@@ -222,7 +225,7 @@ def main():
     if not WALLABAG_TOKEN:
         logging.error("Authentication failed")
         return
-    process_articles(args.instance_url, paywall_hosts, dry_run=args.dry_run)
+    process_articles(args.instance_url, paywall_hosts, args.reading_time_threshold, dry_run=args.dry_run)
 
 if __name__ == "__main__":
     main()

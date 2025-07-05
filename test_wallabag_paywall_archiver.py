@@ -42,6 +42,40 @@ class TestPaywallArchiver(unittest.TestCase):
         url = wallabag_paywall_archiver.submit_to_archive('http://example.com/article')
         self.assertIsNone(url)
 
+    @patch('wallabag_paywall_archiver.delete_article_from_wallabag')
+    @patch('wallabag_paywall_archiver.add_article_to_wallabag')
+    @patch('wallabag_paywall_archiver.submit_to_archive')
+    @patch('wallabag_paywall_archiver.get_existing_archive')
+    @patch('wallabag_paywall_archiver.get_unread_articles')
+    def test_process_articles_replaces_and_deletes(self, mock_get_unread, mock_get_archive, mock_submit, mock_add, mock_delete):
+        mock_get_unread.side_effect = [
+            [{'id': 1, 'url': 'http://wsj.com/a', 'reading_time': 1}],
+            [{'id': 1, 'url': 'http://wsj.com/a', 'reading_time': 1}, {'id': 2, 'url': 'https://archive.is/abcd', 'reading_time': 5}]
+        ]
+        mock_get_archive.return_value = None
+        mock_submit.return_value = 'https://archive.is/abcd'
+        mock_add.return_value = True
+        wallabag_paywall_archiver.process_articles('http://bag', ['wsj.com'], reading_threshold=2, dry_run=False)
+        mock_add.assert_called_once_with('http://bag', 'https://archive.is/abcd', tags_list=['archived'])
+        mock_delete.assert_called_once_with('http://bag', 1)
+
+    @patch('wallabag_paywall_archiver.delete_article_from_wallabag')
+    @patch('wallabag_paywall_archiver.add_article_to_wallabag')
+    @patch('wallabag_paywall_archiver.submit_to_archive')
+    @patch('wallabag_paywall_archiver.get_existing_archive')
+    @patch('wallabag_paywall_archiver.get_unread_articles')
+    def test_process_articles_no_delete_when_still_short(self, mock_get_unread, mock_get_archive, mock_submit, mock_add, mock_delete):
+        mock_get_unread.side_effect = [
+            [{'id': 1, 'url': 'http://ft.com/a', 'reading_time': 1}],
+            [{'id': 1, 'url': 'http://ft.com/a', 'reading_time': 1}, {'id': 2, 'url': 'https://archive.is/abcd', 'reading_time': 1}]
+        ]
+        mock_get_archive.return_value = None
+        mock_submit.return_value = 'https://archive.is/abcd'
+        mock_add.return_value = True
+        wallabag_paywall_archiver.process_articles('http://bag', ['ft.com'], reading_threshold=2, dry_run=False)
+        mock_add.assert_called_once_with('http://bag', 'https://archive.is/abcd', tags_list=['archived'])
+        mock_delete.assert_not_called()
+
 class TestPaywallArchiverReal(unittest.TestCase):
     """Tests that contact the real archive.is service."""
 

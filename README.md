@@ -1,8 +1,9 @@
 # Wallabag Utilities: Labeler and RSS Importer
 
-This project provides a suite of Python scripts to help manage your Wallabag instance. Currently, it includes two main utilities:
+This project provides a suite of Python scripts to help manage your Wallabag instance. Currently, it includes three main utilities:
 1.  **Wallabag Article Labeler (`wallabag_labeler.py`)**: Identifies and tags 'broken' or 'old'/'very-old' articles in your Wallabag instance.
 2.  **Wallabag RSS Importer (`wallabag_rss_importer.py`)**: Fetches new articles from specified RSS feeds and adds them to your Wallabag instance.
+3.  **Paywalled Article Archiver (`wallabag_paywall_archiver.py`)**: Replaces short paywalled articles with archived versions from archive.is.
 
 ## Common Setup
 
@@ -171,6 +172,24 @@ Using a specific feed file path and performing a dry run:
 ```bash
 python wallabag_rss_importer.py --rss-feeds-file ./config/my_personal_feeds.txt --dry-run
 ```
+
+---
+
+## Paywalled Article Archiver (`wallabag_paywall_archiver.py`)
+
+This tool searches your unread list for short articles from paywalled sites. If an archived version exists on `archive.is`, it adds that to Wallabag and removes the original.
+
+### Usage
+
+```bash
+python wallabag_paywall_archiver.py [OPTIONS]
+```
+
+#### Key Options
+
+- `--paywalled-sites` &mdash; comma separated hostnames treated as paywalled. Defaults to common sites like `wsj.com` and `ft.com`.
+- `--dry-run` &mdash; perform a trial run without modifying Wallabag.
+- `--verbose` or `-v` &mdash; enable verbose logging.
 
 ---
 

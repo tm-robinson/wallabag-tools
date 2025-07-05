@@ -24,4 +24,4 @@ dist/
 .eggs/
 settings.json
 .env
-rss_feeds.txt
+rss_feeds.*

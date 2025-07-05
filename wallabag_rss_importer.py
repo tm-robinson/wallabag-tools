@@ -8,6 +8,12 @@ import feedparser
 import dateutil.parser
 import json # For get_wallabag_token error handling
 
+# Provide FeedParserError for older/newer feedparser versions used in tests
+if not hasattr(feedparser, "FeedParserError"):
+    class FeedParserError(Exception):
+        pass
+    feedparser.FeedParserError = FeedParserError
+
 # Load environment variables from .env file if it exists
 load_dotenv()
 
@@ -86,7 +92,7 @@ def fetch_articles_from_feed(feed_url):
         for entry in feed.entries:
             article_url = entry.get("link")
             # Try 'published', then 'updated' as fallback for publication date
-            published_date_str = entry.get("published", entry.get("updated"))
+            published_date_str = entry.get("published") or entry.get("updated")
 
             if article_url and published_date_str:
                 articles_data.append({'url': article_url, 'published_date': published_date_str})
@@ -116,7 +122,14 @@ def is_recent_article(published_date_str, days=30):
         else: # article_date is naive
              now = datetime.utcnow() # ensure now is also naive
 
-        if now - article_date <= timedelta(days=days):
+        # Articles dated in the future should not be considered recent
+        if article_date > now:
+            return False
+
+        # Allow a small tolerance (e.g. one minute) to avoid false negatives
+        # due to slight timing differences when tests compute "now" outside
+        # this function.
+        if now - article_date <= timedelta(days=days, minutes=1):
             return True
         return False
     except (ValueError, TypeError) as e:

@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import patch, MagicMock
+import requests
 import wallabag_paywall_archiver
 
 class TestPaywallArchiver(unittest.TestCase):
@@ -40,6 +41,27 @@ class TestPaywallArchiver(unittest.TestCase):
         mock_post.return_value = mock_response
         url = wallabag_paywall_archiver.submit_to_archive('http://example.com/article')
         self.assertIsNone(url)
+
+class TestPaywallArchiverReal(unittest.TestCase):
+    """Tests that contact the real archive.is service."""
+
+    def setUp(self):
+        try:
+            resp = requests.get("https://archive.is", timeout=5)
+            if resp.status_code >= 400:
+                self.skipTest(f"archive.is returned status {resp.status_code}")
+        except Exception as e:  # noqa: broad-except - network errors should skip
+            self.skipTest(f"archive.is not reachable: {e}")
+
+    def test_get_existing_archive_real(self):
+        url = wallabag_paywall_archiver.get_existing_archive("http://example.com/")
+        self.assertIsNotNone(url)
+        self.assertTrue(url.startswith("https://archive.is/"))
+
+    def test_submit_to_archive_real(self):
+        url = wallabag_paywall_archiver.submit_to_archive("http://example.com/")
+        self.assertIsNotNone(url)
+        self.assertTrue(url.startswith("https://archive.is/"))
 
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
